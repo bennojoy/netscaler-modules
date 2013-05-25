@@ -1,0 +1,177 @@
+#!/usr/bin/python
+# -*- coding: utf-8 -*-
+
+# (c) 2013, Benno Joy <benno@ansibleworks.com>
+#
+# This module is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This software is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this software.  If not, see <http://www.gnu.org/licenses/>.
+
+DOCUMENTATION = '''
+---
+module: netscaler_ip
+author: Benno Joy
+short_description: Used to add/delete Netscaler ip's.
+description:
+     - Configure Citrix Netscaler's IP addresses, This is usually used to add subnet ip's (SNIP) to the netscaler, It can also be used to configure other ip's
+       like MIP, VIP etc...
+
+options:
+  ns_host:
+    description:
+      - hostname or ip of your netscaler
+    required: true
+    default: null
+    aliases: []
+  user:
+    description:
+      - username to access the netscaler
+    required: true
+    default: null
+    aliases: []
+  password:
+    description: password to the netscaler user
+      - password
+    required: true
+    default: null
+    aliases: []
+  state:
+    description:
+      - The state that should be applied on the entity.
+    required: false
+    default: absent
+    choices: ["absent","present"]
+    aliases: []
+  ip_address:
+    description:
+      - IP address to be added/deleted.
+    required: true
+    default: null
+    aliases: []
+  netmask:
+    description:
+      - netmask associated with the ipaddress
+    required: true
+    default: null
+    aliases: []
+  type:
+    description:
+      - type of the ip address
+    required: false
+    default: SNIP
+    choices: ["SNIP", "VIP", "MIP", "NSIP", "GSLBsiteIP"]
+    aliases: []
+
+examples: 
+
+ - code: netscaler_ip "ns_host=172.16.101.2 user=nsroot password=nsroot ip_address=192.168.200.1 type=SNIP netmask=255.255.255.0 state=present"
+   description: "Adds a SNIP (Subnet Ip) to the netscaler"
+       
+ - code: netscaler_ip "ns_host=172.16.101.2 user=nsroot password=nsroot ip_address=192.168.200.1 netmask=255.255.255.0 state=absent"
+   description: "Removes an ip from the netscaler"
+        
+ - code: netscaler_ip "ns_host=172.16.101.2 user=nsroot password=nsroot ip_address=192.168.200.3 type=VIP netmask=255.255.255.0 state=present"           
+   description: "Adds a VIP to the netscaler"
+
+requirements: [ "nsnitro" ]
+
+'''
+
+try:
+	from nsnitro import *
+except:
+	sys.exit(1)
+
+class NetscaleIp:
+	
+	def __init__(self,module):
+			self.ns_host	 = module.params['ns_host']
+			self.user	 = module.params['user']
+			self.password	 = module.params['password']
+			self.state       = module.params['state']
+			self.ip_address	 = module.params['ip_address']
+			self.netmask 	 = module.params['netmask']
+			self.type 	 = module.params['type']
+			self.mod	 = module
+			self.change	 = False
+			self.ip_available = False
+			try:
+				self.conn = NSNitro(self.ns_host,self.user,self.password)	
+				self.conn.login()
+			except:
+				module.fail_json(msg = "Unable to login to Netscaler")
+	
+	def change_required(self):
+		try:
+			ips = NSIP.get_all(self.conn)
+			for ip in ips:
+				if ip.get_ipaddress() == self.ip_address:
+				   self.ip_available = True
+			if self.ip_available and self.state  == 'absent':
+				self.change = True
+			elif self.ip_available == False and self.state == 'present':
+				self.change = True
+
+			return self.change
+		except:
+			self.mod.fail_json(msg = "Some issue in getting ip list from Netscaler")
+				
+		
+	def assign_ip(self):
+		ip = NSIP()
+		ip.set_ipaddress(self.ip_address)
+                ip.set_netmask(self.netmask)
+		ip.set_type(self.type)
+		try:
+                	NSIP.add(self.conn, ip)
+		except:
+			self.mod.fail_json(msg = "Error in adding ip to Netscaler")
+
+	def delete_ip(self):
+		ip = NSIP()
+		ip.set_ipaddress(self.ip_address)
+                ip.set_netmask(self.netmask)
+		ip.set_type(self.type)
+		try:
+                	NSIP.delete(self.conn, ip)
+		except:
+			self.mod.fail_json(msg = "Error in deleting ip to Netscaler")
+		
+	
+def main():
+    
+	module = AnsibleModule(
+        argument_spec  = dict(
+            ns_host    = dict(required=True),
+            user       = dict(required=True),
+            password   = dict(required=True),
+            state      = dict(default='absent', choices=['absent','present']),
+            ip_address = dict(required=True),
+            netmask    = dict(required=True),
+            type       = dict(default='SNIP', choices=['SNIP', 'VIP', 'MIP', 'NSIP', 'GSLBsiteIP'])
+        )
+    )
+
+	netip = NetscaleIp(module)
+	if netip.change_required():
+		if module.params['state'] == 'present':
+			netip.assign_ip()
+			module.exit_json(changed=True,result="Success")
+		else:
+			netip.delete_ip()
+			module.exit_json(changed=True,result="Success")
+	module.exit_json(changed=False,result="Success")
+
+
+# this is magic, see lib/ansible/module.params['common.py
+#<<INCLUDE_ANSIBLE_MODULE_COMMON>>
+main()

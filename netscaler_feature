@@ -1,0 +1,110 @@
+#!/usr/bin/python
+# -*- coding: utf-8 -*-
+
+# (c) 2013, Benno Joy <benno@ansibleworks.com>
+#
+# This module is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This software is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this software.  If not, see <http://www.gnu.org/licenses/>.
+
+DOCUMENTATION = '''
+---
+module: netscaler_feature
+author: Benno Joy
+short_description: Used to enable/disable feature.
+description:
+     - This module can be used to turn on/off  Citrix Netscaler's feature's like LoadBalancing, AAA, Firewall etc.. .
+
+options:
+  ns_host:
+    description:
+      - hostname or ip of your netscaler
+    required: true
+    default: null
+    aliases: []
+  user:
+    description:
+      - username used to access the netscaler device 
+    required: true
+    default: null
+    aliases: []
+  password:
+    description:
+      - password of the user to access the netscaler device 
+    required: true
+    default: null
+    aliases: []
+  feature_name:
+    description:
+      - The name of the feature that has to be turned on/off.
+    required: false
+    default: LB
+    aliases: []
+  state:
+    description:
+      - The state that should be applied on the entity.
+    required: false
+    default: present
+    choices: ["absent","present"]
+    aliases: []
+
+examples:
+
+ - code: netscaler_feature "ns_host=172.16.101.2 user=nsroot password=nsroot feature_name=LB state=present"
+   description: "Enable the LoadBalancing feature on  Netscaler"
+
+requirements: [ "nsnitro" ]
+
+'''
+
+try:
+	from nsnitro import *
+except:
+	sys.exit(1)
+
+def main():
+    
+	module = AnsibleModule(
+        argument_spec          = dict(
+            ns_host            = dict(required=True),
+            user               = dict(required=True),
+            password           = dict(required=True),
+            state      	       = dict(default='present', choices=['absent','present']),
+            feature_name       = dict(required=False),
+        )
+    )
+	try:
+		conn = NSNitro(module.params['ns_host'], module.params['user'], module.params['password'])
+		conn.login()
+	except:
+		module.fail_json(msg = "Error logging into NetScaler")
+
+	if module.params['state'] == 'present':
+		ft = NSFeature()
+		ft.set_feature(module.params['feature_name'])
+		try:
+			NSFeature.enable(conn,ft)
+		except:			
+			module.fail_json(msg = "Error enabling service  in NetScaler")
+	else:
+		ft = NSFeature()
+		ft.set_feature(module.params['feature_name'])
+		try:
+			NSFeature.disable(conn,ft)
+		except:			
+			module.fail_json(msg = "Error disabling service in  NetScaler")
+		
+	module.exit_json(changed=True,result="Success")
+
+# this is magic, see lib/ansible/module.params['common.py
+#<<INCLUDE_ANSIBLE_MODULE_COMMON>>
+main()

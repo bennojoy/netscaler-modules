@@ -1,0 +1,187 @@
+#!/usr/bin/python
+# -*- coding: utf-8 -*-
+
+# (c) 2013, Benno Joy <benno@ansibleworks.com>
+#
+# This module is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This software is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this software.  If not, see <http://www.gnu.org/licenses/>.
+
+DOCUMENTATION = '''
+---
+module: netscaler_lbvserver
+author: Benno Joy
+short_description: Used to add/delete vservers in  Netscaler.
+description:
+ - Configure Citrix Netscaler's Vserver, This module is used to configure the VIP, LoadBalancing Policy etc.. .
+
+options:
+  ns_host:
+    description:
+      - hostname or ip of your netscaler
+    required: true
+    default: null
+    aliases: []
+  user:
+    description:
+      - username of the netscaler device
+    required: true
+    default: null
+    aliases: []
+  password:
+    description:
+      - password to the netscaler user
+    required: true
+    default: null
+    aliases: []
+  name:
+    description:
+      - The name of the Vserver (VIP)
+    required: true
+    default: null
+    aliases: []
+  state:
+    description:
+      - The state that should be applied on the entity.
+    required: false
+    default: absent
+    choices: ["absent","present"]
+    aliases: []
+  ip_address:
+    description:
+      - IP address to be assigned to the VIP
+    required: true
+    default: null
+    aliases: []
+  port:
+    description:
+      - Port that the vip should listen on.
+    required: true
+    default: null
+    aliases: []
+  type:
+    description:
+      - type of the vip service 
+    required: false
+    default: HTTP
+    choices: ["HTTP", "FTP", "TCP", "UDP", "SSL", "SSL_TCP","ANY"]
+    aliases: []
+  lb_method:
+    description:
+      - lbmethod(LoadBalancing Policy) to be used with this vip
+    required: false
+    default: ROUNDROBIN
+    choices: ["ROUNDROBIN", "LEASTCONNECTION","LEASTRESPONSETIME" ]
+    aliases: []
+
+examples: 
+
+ - code:  netscaler_lbvserver  "ns_host=172.16.101.2 user=nsroot password=nsroot ip_address=10.0.0.2 state=present type=HTTP lb_method=ROUNDROBIN name=myapp port=80"
+   description: "Adds a LB Vserver to Netscaler"
+
+requirements: [ "nsnitro" ]
+
+'''
+
+try:
+	from nsnitro import *
+except:
+	sys.exit(1)
+
+class NetscaleService:
+	
+	def __init__(self,module):
+			self.ns_host	 = module.params['ns_host']
+			self.user	 = module.params['user']
+			self.password	 = module.params['password']
+			self.state       = module.params['state']
+			self.ip_address	 = module.params['ip_address']
+			self.lb_method	 = module.params['lb_method']
+			self.name 	 = module.params['name']
+			self.type 	 = module.params['type']
+			self.port 	 = module.params['port']
+			self.mod	 = module
+			self.change	 = False
+			self.vserver_available = False
+			try:
+				self.conn = NSNitro(self.ns_host,self.user,self.password)	
+				self.conn.login()
+			except:
+				module.fail_json(msg = "Unable to login to Netscaler")
+	
+	def change_required(self):
+		try:
+			vserver = NSLBVServer.get_all(self.conn)
+			for s in vserver:
+				if s.get_name() == self.name:
+				   self.vserver_available = True
+			if self.vserver_available and self.state  == 'absent':
+				self.change = True
+			elif self.vserver_available == False and self.state == 'present':
+				self.change = True
+
+			return self.change
+		except:
+			self.mod.fail_json(msg = "Some issue in getting service list from Netscaler")
+				
+		
+	def add_vserver(self):
+		vserver = NSLBVServer()
+		vserver.set_ipv46(self.ip_address)
+		vserver.set_servicetype(self.type)
+		vserver.set_name(self.name)
+		vserver.set_lbmethod(self.lb_method)
+		vserver.set_port(self.port)
+		try:
+                	NSLBVServer.add(self.conn, vserver)
+		except:
+			self.mod.fail_json(msg = "Error in adding vserver to Netscaler")
+
+	def delete_vserver(self):
+		vserver = NSLBVServer()
+		vserver.set_name(self.name)
+		try:
+                	NSLBVServer.delete(self.conn, vserver)
+		except:
+			self.mod.fail_json(msg = "Error in deleting vserver from Netscaler")
+		
+	
+def main():
+    
+	module = AnsibleModule(
+        argument_spec  = dict(
+            ns_host    = dict(required=True),
+            user       = dict(required=True),
+            password   = dict(required=True),
+            state      = dict(default='absent', choices=['absent','present']),
+            lb_method  = dict(default='ROUNDROBIN', choices=['ROUNDROBIN','LEASTCONNECTION','LEASTRESPONSETIME']),
+            ip_address = dict(required=False),
+            name       = dict(required=True),
+            port       = dict(required=True),
+            type       = dict(default='HTTP', choices=['HTTP', 'FTP', 'TCP', 'UDP', 'SSL', 'SSL_TCP','ANY'])
+        )
+    )
+
+	netvserver = NetscaleService(module)
+	if netvserver.change_required():
+		if module.params['state'] == 'present':
+			netvserver.add_vserver()
+			module.exit_json(changed=True,result="Success")
+		else:
+			netvserver.delete_vserver()
+			module.exit_json(changed=True,result="Success")
+	module.exit_json(changed=False,result="Success")
+
+
+# this is magic, see lib/ansible/module.params['common.py
+#<<INCLUDE_ANSIBLE_MODULE_COMMON>>
+main()

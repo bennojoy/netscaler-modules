@@ -1,0 +1,187 @@
+#!/usr/bin/python
+# -*- coding: utf-8 -*-
+
+# (c) 2013, Benno Joy <benno@ansibleworks.com>
+#
+# This module is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This software is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this software.  If not, see <http://www.gnu.org/licenses/>.
+
+DOCUMENTATION = '''
+---
+module: netscaler_service
+author: Benno Joy
+short_description: Used to add/delete a service in Netscaler.
+description:
+     - This module is Used to add/delete a service in Netscaler, A service is usually a endpoint ip/port/protocol combination that would be accessed when a VIP is accessed.
+options:
+  ns_host:
+    description:
+      - hostname or ip of your netscaler
+    required: true
+    default: null
+    aliases: []
+  user:
+    description:
+      - username to access the netscaler
+    required: true
+    default: null
+    aliases: []
+  password:
+    description:
+      - password of the netscaler user
+    required: true
+    default: null
+    aliases: []
+  name:
+    description:
+      - The name of the service.
+    required: true
+    default: null
+    aliases: []
+  server_name:
+    description:
+      - The servername to be added to the service.
+    required: false
+    default: null
+    aliases: []
+  state:
+    description:
+      - The state that should be applied on the entity.
+    required: false
+    default: absent
+    choices: ["absent","present"]
+    aliases: []
+  ip_address:
+    description:
+      - IP address to be assigned to the service
+    required: false
+    default: null
+    aliases: []
+  port:
+    description:
+      - The port that would assigned to the service
+    required: true
+    default: null
+    aliases: []
+  type:
+    description:
+      - type of the service
+    required: false
+    default: HTTP
+    choices: ["HTTP", "FTP", "TCP", "UDP", "SSL", "SSL_TCP","ANY"]
+    aliases: []
+
+examples:
+  - code: 'netscaler_service ns_host=172.16.101.2 user=nsroot password=nsroot ip_address=192.168.10.10 port=80 type=HTTP  state=present'
+    description: "Adds a service  to the netscaler, here the enpoint is a webserver with endpoint ip as 192.168.10.10 protocol as http and port 80"
+
+requirements: ['nsnitro']
+'''
+
+try:
+	from nsnitro import *
+except:
+	sys.exit(1)
+
+class NetscaleService:
+	
+	def __init__(self,module):
+			self.ns_host	 = module.params['ns_host']
+			self.user	 = module.params['user']
+			self.password	 = module.params['password']
+			self.state       = module.params['state']
+			self.ip_address	 = module.params['ip_address']
+			self.server_name = module.params['server_name']
+			self.name 	 = module.params['name']
+			self.type 	 = module.params['type']
+			self.port 	 = module.params['port']
+			self.mod	 = module
+			self.change	 = False
+			self.service_available = False
+			try:
+				self.conn = NSNitro(self.ns_host,self.user,self.password)	
+				self.conn.login()
+			except:
+				module.fail_json(msg = "Unable to login to Netscaler")
+	
+	def change_required(self):
+		try:
+			svs = NSService.get_all(self.conn)
+			for s in svs:
+				if s.get_name() == self.name:
+				   self.service_available = True
+			if self.service_available and self.state  == 'absent':
+				self.change = True
+			elif self.service_available == False and self.state == 'present':
+				self.change = True
+
+			return self.change
+		except:
+			self.mod.fail_json(msg = "Some issue in getting service list from Netscaler")
+				
+		
+	def add_service(self):
+		svs = NSService()
+		print self.ip_address
+		if self.server_name == 'null':
+			svs.set_servername(self.ip_address)
+		else:
+			svs.set_servername(self.server_name)
+		svs.set_servicetype(self.type)
+		svs.set_name(self.name)
+		svs.set_port(self.port)
+		try:
+                	NSService.add(self.conn, svs)
+		except:
+			self.mod.fail_json(msg = "Error in adding service to Netscaler")
+
+	def delete_service(self):
+		svs = NSService()
+		svs.set_name(self.name)
+		try:
+                	NSService.delete(self.conn, svs)
+		except:
+			self.mod.fail_json(msg = "Error in deleting service from Netscaler")
+		
+	
+def main():
+    
+	module = AnsibleModule(
+        argument_spec   = dict(
+            ns_host     = dict(required=True),
+            user        = dict(required=True),
+            password    = dict(required=True),
+            state       = dict(default='absent', choices=['absent','present']),
+            ip_address  = dict(required=False),
+            server_name = dict(required=False, default='null'),
+            name        = dict(required=True),
+            port        = dict(required=True),
+            type        = dict(default='HTTP', choices=['HTTP', 'FTP', 'TCP', 'UDP', 'SSL', 'SSL_TCP','ANY'])
+        ),
+			required_one_of = [['ip_address','server_name']]
+    )
+
+	netsvs = NetscaleService(module)
+	if netsvs.change_required():
+		if module.params['state'] == 'present':
+			netsvs.add_service()
+			module.exit_json(changed=True,result="Success")
+		else:
+			netsvs.delete_service()
+			module.exit_json(changed=True,result="Success")
+	module.exit_json(changed=False,result="Success")
+
+
+# this is magic, see lib/ansible/module.params['common.py
+#<<INCLUDE_ANSIBLE_MODULE_COMMON>>
+main()
